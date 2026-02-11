@@ -85,8 +85,12 @@ function HomePage({ user }) {
       </div>
 
       <ul className="thread-list">
-        {threads.map((thread) => (
-          <li key={thread.id} className="thread-item">
+        {threads.map((thread, index) => (
+          <li
+            key={thread.id}
+            className="thread-item thread-item--animated"
+            style={{ '--stagger': index }}
+          >
             <h3>
               <Link to={`/threads/${thread.id}`}>{thread.title}</Link>
             </h3>

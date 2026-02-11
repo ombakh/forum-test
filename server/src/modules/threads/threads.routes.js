@@ -37,6 +37,23 @@ function buildThreadSelect() {
   `;
 }
 
+function buildResponseSelect() {
+  return `
+    SELECT
+      r.id,
+      r.thread_id AS threadId,
+      r.user_id AS userId,
+      r.author_name AS authorName,
+      r.body,
+      r.created_at AS createdAt,
+      COALESCE(SUM(CASE WHEN rv.vote = 1 THEN 1 ELSE 0 END), 0) AS upvotes,
+      COALESCE(SUM(CASE WHEN rv.vote = -1 THEN 1 ELSE 0 END), 0) AS downvotes,
+      MAX(CASE WHEN rv.user_id = ? THEN rv.vote ELSE 0 END) AS userVote
+    FROM thread_responses r
+    LEFT JOIN response_votes rv ON rv.response_id = r.id
+  `;
+}
+
 router.get('/', (_req, res) => {
   try {
     const viewerId = getViewerId(_req) || -1;
@@ -196,6 +213,145 @@ router.delete('/:threadId', requireAuth, requireAdmin, (req, res) => {
     return res.status(204).send();
   } catch (_error) {
     return res.status(500).json({ message: 'Could not delete thread' });
+  }
+});
+
+router.get('/:threadId/responses', (req, res) => {
+  const threadId = Number(req.params.threadId);
+  if (!Number.isInteger(threadId) || threadId <= 0) {
+    return res.status(400).json({ message: 'Invalid thread id' });
+  }
+
+  try {
+    const viewerId = getViewerId(req) || -1;
+    const db = getDb();
+    const exists = db.prepare('SELECT id FROM threads WHERE id = ?').get(threadId);
+    if (!exists) {
+      return res.status(404).json({ message: 'Thread not found' });
+    }
+
+    const responses = db
+      .prepare(
+        `${buildResponseSelect()}
+         WHERE r.thread_id = ?
+         GROUP BY r.id
+         ORDER BY datetime(r.created_at) ASC`
+      )
+      .all(viewerId, threadId)
+      .map((response) => ({
+        ...response,
+        upvotes: Number(response.upvotes),
+        downvotes: Number(response.downvotes),
+        userVote: Number(response.userVote)
+      }));
+
+    return res.json({ responses });
+  } catch (_error) {
+    return res.status(500).json({ message: 'Failed to load responses' });
+  }
+});
+
+router.post('/:threadId/responses', requireAuth, (req, res) => {
+  const threadId = Number(req.params.threadId);
+  const body = (req.body.body || '').trim();
+
+  if (!Number.isInteger(threadId) || threadId <= 0) {
+    return res.status(400).json({ message: 'Invalid thread id' });
+  }
+
+  if (!body) {
+    return res.status(400).json({ message: 'Response body is required' });
+  }
+
+  try {
+    const db = getDb();
+    const exists = db.prepare('SELECT id FROM threads WHERE id = ?').get(threadId);
+    if (!exists) {
+      return res.status(404).json({ message: 'Thread not found' });
+    }
+
+    const result = db
+      .prepare(
+        `INSERT INTO thread_responses (thread_id, user_id, author_name, body)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run(threadId, req.authUser.id, req.authUser.name, body);
+
+    const response = db
+      .prepare(
+        `${buildResponseSelect()}
+         WHERE r.id = ?
+         GROUP BY r.id`
+      )
+      .get(req.authUser.id, result.lastInsertRowid);
+
+    return res.status(201).json({
+      response: {
+        ...response,
+        upvotes: Number(response.upvotes),
+        downvotes: Number(response.downvotes),
+        userVote: Number(response.userVote)
+      }
+    });
+  } catch (_error) {
+    return res.status(500).json({ message: 'Failed to create response' });
+  }
+});
+
+router.post('/:threadId/responses/:responseId/vote', requireAuth, (req, res) => {
+  const threadId = Number(req.params.threadId);
+  const responseId = Number(req.params.responseId);
+  const vote = Number(req.body.vote);
+  const userId = req.authUser.id;
+
+  if (!Number.isInteger(threadId) || threadId <= 0) {
+    return res.status(400).json({ message: 'Invalid thread id' });
+  }
+
+  if (!Number.isInteger(responseId) || responseId <= 0) {
+    return res.status(400).json({ message: 'Invalid response id' });
+  }
+
+  if (vote !== 1 && vote !== -1) {
+    return res.status(400).json({ message: 'Vote must be 1 or -1' });
+  }
+
+  try {
+    const db = getDb();
+    const responseExists = db
+      .prepare('SELECT id FROM thread_responses WHERE id = ? AND thread_id = ?')
+      .get(responseId, threadId);
+
+    if (!responseExists) {
+      return res.status(404).json({ message: 'Response not found' });
+    }
+
+    db.prepare(
+      `INSERT INTO response_votes (response_id, user_id, vote)
+       VALUES (?, ?, ?)
+       ON CONFLICT(response_id, user_id) DO UPDATE SET
+         vote = excluded.vote,
+         updated_at = CURRENT_TIMESTAMP`
+    ).run(responseId, userId, vote);
+
+    const response = db
+      .prepare(
+        `${buildResponseSelect()}
+         WHERE r.id = ?
+         GROUP BY r.id`
+      )
+      .get(userId, responseId);
+
+    return res.json({
+      response: {
+        ...response,
+        upvotes: Number(response.upvotes),
+        downvotes: Number(response.downvotes),
+        userVote: Number(response.userVote)
+      }
+    });
+  } catch (_error) {
+    return res.status(500).json({ message: 'Could not submit response vote' });
   }
 });
 

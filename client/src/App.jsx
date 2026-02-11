@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, Route, Routes } from 'react-router-dom';
+import { Link, Route, Routes, useLocation } from 'react-router-dom';
+import PageMotion from './components/PageMotion.jsx';
 import HomePage from './pages/HomePage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
@@ -9,6 +10,7 @@ import ThreadPage from './pages/ThreadPage.jsx';
 import { getCurrentUser, logout } from './services/authService.js';
 
 function App() {
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [myPostsVersion, setMyPostsVersion] = useState(0);
@@ -75,16 +77,18 @@ function App() {
 
       <div className="content-grid">
         <main className="main-panel">
-          <Routes>
-            <Route path="/" element={<HomePage user={user} />} />
-            <Route
-              path="/post"
-              element={<PostPage user={user} onThreadPosted={onThreadPosted} />}
-            />
-            <Route path="/admin" element={<AdminPage user={user} />} />
-            <Route path="/login" element={<LoginPage onAuthSuccess={setUser} />} />
-            <Route path="/threads/:threadId" element={<ThreadPage user={user} />} />
-          </Routes>
+          <PageMotion routeKey={location.pathname}>
+            <Routes location={location}>
+              <Route path="/" element={<HomePage user={user} />} />
+              <Route
+                path="/post"
+                element={<PostPage user={user} onThreadPosted={onThreadPosted} />}
+              />
+              <Route path="/admin" element={<AdminPage user={user} />} />
+              <Route path="/login" element={<LoginPage onAuthSuccess={setUser} />} />
+              <Route path="/threads/:threadId" element={<ThreadPage user={user} />} />
+            </Routes>
+          </PageMotion>
         </main>
 
         <aside className="sidebar">
