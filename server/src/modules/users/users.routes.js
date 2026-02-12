@@ -129,7 +129,35 @@ router.get('/:userId', (req, res) => {
         boardId: comment.boardId ? Number(comment.boardId) : null
       }));
 
-    return res.json({ user, posts, comments });
+    const voteTotals = db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(CASE WHEN votes.vote = 1 THEN 1 ELSE 0 END), 0) AS upvotesReceived,
+          COALESCE(SUM(CASE WHEN votes.vote = -1 THEN 1 ELSE 0 END), 0) AS downvotesReceived
+         FROM (
+           SELECT tv.vote
+           FROM thread_votes tv
+           JOIN threads t ON t.id = tv.thread_id
+           WHERE t.author_user_id = ?
+           UNION ALL
+           SELECT rv.vote
+           FROM response_votes rv
+           JOIN thread_responses r ON r.id = rv.response_id
+           WHERE r.user_id = ?
+         ) votes`
+      )
+      .get(userId, userId);
+
+    return res.json({
+      user,
+      posts,
+      comments,
+      stats: {
+        upvotesReceived: Number(voteTotals.upvotesReceived),
+        downvotesReceived: Number(voteTotals.downvotesReceived),
+        score: Number(voteTotals.upvotesReceived) - Number(voteTotals.downvotesReceived)
+      }
+    });
   } catch (_error) {
     return res.status(500).json({ message: 'Could not load user profile' });
   }

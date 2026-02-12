@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, Route, Routes, useLocation } from 'react-router-dom';
 import PageMotion from './components/PageMotion.jsx';
 import HomePage from './pages/HomePage.jsx';
@@ -17,6 +17,8 @@ function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [myPostsVersion, setMyPostsVersion] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -44,11 +46,33 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    function onPointerDown(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    }
+
+    function onKeyDown(event) {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
+
   async function onLogout() {
     try {
       await logout();
     } finally {
       setUser(null);
+      setMenuOpen(false);
       setMyPostsVersion((current) => current + 1);
     }
   }
@@ -60,20 +84,43 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="topbar__brand">Pinboard</div>
+        <Link to="/" className="topbar__brand">
+          Pinboard
+        </Link>
         <nav className="topbar__nav">
           <Link to="/">Home</Link>
           <Link to="/boards">Boards</Link>
           <Link to="/post">Post</Link>
-          {user ? <Link to={`/users/${user.id}`}>My Profile</Link> : null}
-          {user?.isAdmin ? <Link to="/admin">Admin</Link> : null}
           {authLoading ? null : user ? (
-            <>
-              <span className="topbar__user">Signed in as {user.name}</span>
-              <button type="button" className="btn btn--secondary" onClick={onLogout}>
-                Logout
+            <div className="profile-menu" ref={menuRef}>
+              <button
+                type="button"
+                className="profile-menu__trigger"
+                onClick={() => setMenuOpen((current) => !current)}
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+              >
+                <span className="profile-icon" aria-hidden="true">
+                  👤
+                </span>
+                <span>{user.name}</span>
               </button>
-            </>
+              {menuOpen ? (
+                <div className="profile-menu__dropdown" role="menu">
+                  <Link to={`/users/${user.id}`} onClick={() => setMenuOpen(false)} role="menuitem">
+                    Go to my profile
+                  </Link>
+                  {user.isAdmin ? (
+                    <Link to="/admin" onClick={() => setMenuOpen(false)} role="menuitem">
+                      Admin panel
+                    </Link>
+                  ) : null}
+                  <button type="button" onClick={onLogout} role="menuitem">
+                    Logout
+                  </button>
+                </div>
+              ) : null}
+            </div>
           ) : (
             <Link to="/login">Login</Link>
           )}

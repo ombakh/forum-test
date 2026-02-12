@@ -76,6 +76,7 @@ select:focus {
 }
 
 .topbar__brand {
+  text-decoration: none;
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -92,6 +93,69 @@ select:focus {
 .topbar__user {
   color: var(--muted);
   font-size: 0.95rem;
+}
+
+.profile-menu {
+  position: relative;
+}
+
+.profile-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid #b2c5e2;
+  background: #f3f7ff;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.32rem 0.62rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.profile-icon {
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #dce8fb;
+  border: 1px solid #9eb8de;
+  font-size: 0.8rem;
+}
+
+.profile-menu__dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.45rem);
+  min-width: 200px;
+  border: 1px solid #bdd0eb;
+  border-radius: 12px;
+  background: #f9fbff;
+  box-shadow: 0 18px 30px rgba(24, 52, 100, 0.16);
+  padding: 0.32rem;
+  display: grid;
+  gap: 0.2rem;
+  z-index: 40;
+}
+
+.profile-menu__dropdown a,
+.profile-menu__dropdown button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  border-radius: 9px;
+  font: inherit;
+  padding: 0.5rem 0.58rem;
+  cursor: pointer;
+}
+
+.profile-menu__dropdown a:hover,
+.profile-menu__dropdown button:hover {
+  background: #e7effc;
+  border-color: #b6cae8;
 }
 
 .content-grid {
@@ -230,6 +294,11 @@ select:focus {
   flex-wrap: wrap;
 }
 
+.vote-controls__icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
 .btn {
   border: 1px solid var(--brand-dark);
   background: linear-gradient(180deg, #2e6fce, var(--brand));
@@ -302,6 +371,11 @@ select:focus {
   transition: transform var(--motion-fast) ease, border-color var(--motion-fast) ease;
 }
 
+.mini-vote-stats {
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+}
+
 .mini-list li:hover {
   transform: translateX(2px);
   border-color: #aac1e3;
@@ -354,6 +428,10 @@ select:focus {
 .profile-layout {
   display: grid;
   gap: 1rem;
+}
+
+.profile-stats {
+  margin-top: 0.35rem;
 }
 
 .response-list {
