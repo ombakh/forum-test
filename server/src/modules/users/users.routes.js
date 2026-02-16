@@ -10,7 +10,7 @@ router.get('/me', requireAuth, (req, res) => {
     const db = getDb();
     const user = db
       .prepare(
-        `SELECT id, name, email, is_admin AS isAdmin, banned_at AS bannedAt, ban_reason AS banReason, created_at AS createdAt
+        `SELECT id, name, handle, email, is_admin AS isAdmin, banned_at AS bannedAt, ban_reason AS banReason, created_at AS createdAt
          FROM users
          WHERE id = ?`
       )
@@ -75,6 +75,7 @@ router.get('/:userId', (req, res) => {
         `SELECT
           id,
           name,
+          handle,
           created_at AS createdAt
          FROM users
          WHERE id = ?`
@@ -173,6 +174,7 @@ router.get('/', requireAuth, requireAdmin, (_req, res) => {
         `SELECT
           id,
           name,
+          handle,
           email,
           is_admin AS isAdmin,
           banned_at AS bannedAt,
@@ -209,7 +211,7 @@ router.post('/:userId/ban', requireAuth, requireAdmin, (req, res) => {
   try {
     const db = getDb();
     const target = db
-      .prepare('SELECT id, name, email, is_admin, banned_at, ban_reason, created_at FROM users WHERE id = ?')
+      .prepare('SELECT id, name, handle, email, is_admin, banned_at, ban_reason, created_at FROM users WHERE id = ?')
       .get(targetUserId);
 
     if (!target) {
@@ -241,6 +243,7 @@ router.post('/:userId/ban', requireAuth, requireAdmin, (req, res) => {
         `SELECT
           id,
           name,
+          handle,
           email,
           is_admin AS isAdmin,
           banned_at AS bannedAt,

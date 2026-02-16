@@ -69,7 +69,7 @@ function HomePage({ user }) {
         ) : null}
       </div>
 
-      <div className="board-grid">
+      <div className="board-grid home-board-grid">
         {filteredBoards.map((board, index) => (
           <Link
             key={board.id}

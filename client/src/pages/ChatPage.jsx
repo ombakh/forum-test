@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { fetchChatUsers, fetchConversation, sendMessage } from '../services/chatService.js';
 
@@ -18,6 +18,7 @@ function ChatPage({ user }) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [userSearch, setUserSearch] = useState('');
+  const messageListRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -132,6 +133,13 @@ function ChatPage({ user }) {
     [chatUsers, selectedUserId]
   );
 
+  useEffect(() => {
+    if (!messageListRef.current) {
+      return;
+    }
+    messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
+  }, [messages, selectedUserId]);
+
   async function onSendMessage(event) {
     event.preventDefault();
 
@@ -225,7 +233,7 @@ function ChatPage({ user }) {
 
         {!selectedUserId ? <p className="muted">Pick someone from the list to start chatting.</p> : null}
 
-        <ul className="chat-message-list">
+        <ul className="chat-message-list" ref={messageListRef}>
           {messages.map((message) => {
             const mine = message.senderUserId === user.id;
             return (
@@ -245,6 +253,12 @@ function ChatPage({ user }) {
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
               placeholder="Write a message..."
               rows={3}
               maxLength={2000}

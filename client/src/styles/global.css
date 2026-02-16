@@ -60,6 +60,33 @@ select:focus {
   outline-offset: 1px;
 }
 
+.handle-input {
+  display: flex;
+  align-items: center;
+  border: 1px solid #b9c9e2;
+  border-radius: 10px;
+  padding: 0 0.85rem;
+  background: #fff;
+}
+
+.handle-input:focus-within {
+  outline: 2px solid #a4c1ee;
+  outline-offset: 1px;
+}
+
+.handle-input__prefix {
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 0.35rem;
+}
+
+.handle-input input {
+  border: 0;
+  outline: 0;
+  border-radius: 0;
+  padding: 0.7rem 0;
+}
+
 .app-shell {
   min-height: 100vh;
 }
@@ -223,6 +250,14 @@ select:focus {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.9rem;
+}
+
+.home-board-grid {
+  margin-top: 1rem;
+}
+
+.boards-directory-grid {
+  margin-top: 1rem;
 }
 
 .board-card {
@@ -434,6 +469,12 @@ select:focus {
   margin-top: 0.35rem;
 }
 
+.profile-handle {
+  color: var(--muted);
+  font-size: 0.82em;
+  font-weight: 500;
+}
+
 .response-list {
   list-style: none;
   margin: 0.75rem 0 0;
@@ -572,22 +613,37 @@ select:focus {
 }
 
 .chat-compose {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: 0.55rem;
   border-top: 1px solid #d6e2f2;
   padding-top: 0.7rem;
-  margin-top: auto;
-  position: sticky;
-  bottom: 0;
-  background: linear-gradient(180deg, rgba(249, 251, 255, 0.65), rgba(249, 251, 255, 0.98) 32%);
-  backdrop-filter: blur(1px);
+  width: 100%;
+  grid-row: 4;
+  margin-top: 0;
+  position: relative;
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .chat-compose textarea {
-  min-height: 104px;
-  max-height: 104px;
-  height: 104px;
+  min-height: 72px;
+  max-height: 72px;
+  height: 72px;
   resize: none;
+  flex: 1;
+}
+
+.chat-compose .btn {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  align-self: center;
 }
 
 @keyframes page-enter {

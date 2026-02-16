@@ -11,15 +11,30 @@ const {
 
 const router = express.Router();
 
+function normalizeHandle(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, '')
+    .replace(/[^a-z0-9_]/g, '');
+}
+
 router.post('/register', (req, res) => {
   const name = (req.body.name || '').trim();
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
+  const handle = normalizeHandle(req.body.handle);
 
-  if (!name || !email || !password || password.length < 8) {
+  if (!name || !email || !password || password.length < 8 || !handle) {
     return res
       .status(400)
-      .json({ message: 'Name, email, and a password with at least 8 characters are required' });
+      .json({ message: 'Name, handle, email, and a password with at least 8 characters are required' });
+  }
+
+  if (!/^[a-z0-9_]{3,20}$/.test(handle)) {
+    return res
+      .status(400)
+      .json({ message: 'Handle must be 3-20 characters using only letters, numbers, or underscores' });
   }
 
   try {
@@ -29,18 +44,22 @@ router.post('/register', (req, res) => {
     if (existing) {
       return res.status(409).json({ message: 'Email already in use' });
     }
+    const existingHandle = db.prepare('SELECT id FROM users WHERE handle = ?').get(handle);
+    if (existingHandle) {
+      return res.status(409).json({ message: 'Handle already in use' });
+    }
 
     const passwordHash = bcrypt.hashSync(password, 12);
     const insert = db
       .prepare(
-        `INSERT INTO users (name, email, password_hash)
-         VALUES (?, ?, ?)`
+        `INSERT INTO users (name, handle, email, password_hash)
+         VALUES (?, ?, ?, ?)`
       )
-      .run(name, email, passwordHash);
+      .run(name, handle, email, passwordHash);
 
     const user = db
       .prepare(
-        `SELECT id, name, email, is_admin AS isAdmin, banned_at AS bannedAt, created_at AS createdAt
+        `SELECT id, name, handle, email, is_admin AS isAdmin, banned_at AS bannedAt, created_at AS createdAt
          FROM users
          WHERE id = ?`
       )
@@ -85,6 +104,7 @@ router.post('/login', (req, res) => {
     const safeUser = {
       id: user.id,
       name: user.name,
+      handle: user.handle,
       email: user.email,
       isAdmin: Boolean(user.is_admin),
       bannedAt: user.banned_at,
@@ -115,7 +135,7 @@ router.get('/me', (req, res) => {
     const db = getDb();
     const user = db
       .prepare(
-        `SELECT id, name, email, is_admin AS isAdmin, banned_at AS bannedAt, ban_reason AS banReason, created_at AS createdAt
+        `SELECT id, name, handle, email, is_admin AS isAdmin, banned_at AS bannedAt, ban_reason AS banReason, created_at AS createdAt
          FROM users
          WHERE id = ?`
       )
