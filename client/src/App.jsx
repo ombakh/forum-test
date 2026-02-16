@@ -14,6 +14,7 @@ import ProfilePage from './pages/ProfilePage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import ThreadPage from './pages/ThreadPage.jsx';
 import NotificationsPage from './pages/NotificationsPage.jsx';
+import ModerationPage from './pages/ModerationPage.jsx';
 import { getCurrentUser, logout } from './services/authService.js';
 import { fetchChatUsers } from './services/chatService.js';
 import { fetchUnreadNotificationCount } from './services/notificationService.js';
@@ -31,10 +32,38 @@ function App() {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const menuRef = useRef(null);
+  const closeMenuTimeoutRef = useRef(null);
+
+  function clearCloseMenuTimeout() {
+    if (closeMenuTimeoutRef.current) {
+      window.clearTimeout(closeMenuTimeoutRef.current);
+      closeMenuTimeoutRef.current = null;
+    }
+  }
+
+  function openMenu() {
+    clearCloseMenuTimeout();
+    setMenuOpen(true);
+  }
+
+  function queueCloseMenu() {
+    clearCloseMenuTimeout();
+    closeMenuTimeoutRef.current = window.setTimeout(() => {
+      setMenuOpen(false);
+      closeMenuTimeoutRef.current = null;
+    }, 260);
+  }
 
   useEffect(() => {
     applyTheme(getPreferredTheme());
   }, []);
+
+  useEffect(
+    () => () => {
+      clearCloseMenuTimeout();
+    },
+    []
+  );
 
   useEffect(() => {
     let active = true;
@@ -174,12 +203,14 @@ function App() {
   useEffect(() => {
     function onPointerDown(event) {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
+        clearCloseMenuTimeout();
         setMenuOpen(false);
       }
     }
 
     function onKeyDown(event) {
       if (event.key === 'Escape') {
+        clearCloseMenuTimeout();
         setMenuOpen(false);
       }
     }
@@ -193,6 +224,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    clearCloseMenuTimeout();
     setMenuOpen(false);
   }, [location.pathname]);
 
@@ -203,6 +235,7 @@ function App() {
       setUser(null);
       setUnreadMessages(0);
       setUnreadNotifications(0);
+      clearCloseMenuTimeout();
       setMenuOpen(false);
       setMyPostsVersion((current) => current + 1);
     }
@@ -247,16 +280,17 @@ function App() {
                 ) : null}
               </Link>
             ) : null}
+            {user && (user.isAdmin || user.isModerator) ? <Link to="/moderation">Moderation</Link> : null}
             {authLoading ? null : user ? (
               <div
-                className="profile-menu"
+                className={`profile-menu ${menuOpen ? 'is-open' : ''}`}
                 ref={menuRef}
-                onMouseEnter={() => setMenuOpen(true)}
-                onMouseLeave={() => setMenuOpen(false)}
-                onFocusCapture={() => setMenuOpen(true)}
+                onMouseEnter={openMenu}
+                onMouseLeave={queueCloseMenu}
+                onFocusCapture={openMenu}
                 onBlurCapture={(event) => {
                   if (!menuRef.current?.contains(event.relatedTarget)) {
-                    setMenuOpen(false);
+                    queueCloseMenu();
                   }
                 }}
               >
@@ -267,7 +301,7 @@ function App() {
                   aria-haspopup="menu"
                 >
                   <span className="profile-icon" aria-hidden="true">
-                    👤
+                    {user.profileImageUrl ? <img src={user.profileImageUrl} alt="" /> : '👤'}
                   </span>
                   <span>{user.name}</span>
                 </Link>
@@ -314,6 +348,7 @@ function App() {
                 <Route path="/threads/:threadId" element={<ThreadPage user={user} />} />
                 <Route path="/messages" element={<ChatPage user={user} />} />
                 <Route path="/notifications" element={<NotificationsPage user={user} />} />
+                <Route path="/moderation" element={<ModerationPage user={user} />} />
               </Routes>
             </PageMotion>
           </main>

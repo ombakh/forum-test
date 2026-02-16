@@ -32,14 +32,22 @@ export async function fetchConversation(userId) {
   return response.json();
 }
 
-export async function sendMessage(userId, body) {
+export async function sendMessage(userId, bodyOrPayload) {
+  const payload =
+    typeof bodyOrPayload === 'string'
+      ? { body: bodyOrPayload }
+      : {
+          body: bodyOrPayload?.body || '',
+          ...(bodyOrPayload?.sharedThreadId ? { sharedThreadId: bodyOrPayload.sharedThreadId } : {})
+        };
+
   const response = await fetch(`${API_BASE_URL}/messages/${userId}`, {
     method: 'POST',
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ body })
+    body: JSON.stringify(payload)
   });
 
   if (!response.ok) {

@@ -12,6 +12,8 @@ import {
   voteThreadResponse,
   voteThread
 } from '../services/threadService.js';
+import { createReport } from '../services/reportService.js';
+import { formatDateTime } from '../utils/dateTime.js';
 import { renderMentions } from '../utils/renderMentions.jsx';
 
 function ThreadPage({ user }) {
@@ -27,6 +29,8 @@ function ThreadPage({ user }) {
   const [responding, setResponding] = useState(false);
   const [responsesLoading, setResponsesLoading] = useState(true);
   const [votingResponseId, setVotingResponseId] = useState(null);
+  const [reportingKey, setReportingKey] = useState('');
+  const [reportMessage, setReportMessage] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -70,6 +74,10 @@ function ThreadPage({ user }) {
   if (!thread) {
     return <p className="muted">Thread not found.</p>;
   }
+
+  const shareThreadTo = `/messages?shareThreadId=${thread.id}&shareThreadTitle=${encodeURIComponent(
+    thread.title
+  )}`;
 
   async function onVote(vote) {
     setVoting(true);
@@ -134,6 +142,50 @@ function ThreadPage({ user }) {
     }
   }
 
+  async function onReport(entityType, entityId) {
+    if (!user) {
+      setError('Login required to report content');
+      setReportMessage('');
+      return;
+    }
+
+    const reason = window.prompt('Why are you reporting this?', '');
+    if (reason === null) {
+      return;
+    }
+    const trimmedReason = String(reason).trim();
+    if (!trimmedReason) {
+      setError('Report reason is required');
+      setReportMessage('');
+      return;
+    }
+
+    const detailsPrompt = window.prompt('Optional details for moderators:', '');
+    if (detailsPrompt === null) {
+      return;
+    }
+    const details = String(detailsPrompt || '').trim();
+
+    const key = `${entityType}:${entityId}`;
+    setReportingKey(key);
+    setError('');
+    setReportMessage('');
+
+    try {
+      await createReport({
+        entityType,
+        entityId,
+        reason: trimmedReason,
+        details
+      });
+      setReportMessage('Thanks. Your report was submitted for moderator review.');
+    } catch (reportError) {
+      setError(reportError.message || 'Could not submit report');
+    } finally {
+      setReportingKey('');
+    }
+  }
+
   return (
     <TiltCard as="article" className="card">
       {thread.boardSlug ? (
@@ -150,11 +202,30 @@ function ThreadPage({ user }) {
           ) : (
             thread.authorName
           )}{' '}
-          on {new Date(thread.createdAt).toLocaleString()}
+          on {formatDateTime(thread.createdAt, user?.timezone)}
         </small>
       </p>
       <p className="thread-body">{renderMentions(thread.body)}</p>
       <VoteControls thread={thread} user={user} onVote={onVote} disabled={voting} />
+      {user ? (
+        <p>
+          <Link className="btn btn--secondary" to={shareThreadTo}>
+            Share via Message
+          </Link>
+        </p>
+      ) : null}
+      {user && thread.authorUserId !== user.id ? (
+        <p>
+          <button
+            className="btn btn--secondary"
+            type="button"
+            onClick={() => onReport('thread', thread.id)}
+            disabled={reportingKey === `thread:${thread.id}`}
+          >
+            {reportingKey === `thread:${thread.id}` ? 'Reporting...' : 'Report Thread'}
+          </button>
+        </p>
+      ) : null}
       {user?.isAdmin ? (
         <p>
           <button className="btn btn--secondary" type="button" onClick={onDelete} disabled={deleting}>
@@ -162,6 +233,7 @@ function ThreadPage({ user }) {
           </button>
         </p>
       ) : null}
+      {reportMessage ? <p className="muted">{reportMessage}</p> : null}
 
       <section className="responses">
         <h2>Responses</h2>
@@ -205,9 +277,19 @@ function ThreadPage({ user }) {
                   ) : (
                     response.authorName
                   )}{' '}
-                  on {new Date(response.createdAt).toLocaleString()}
+                  on {formatDateTime(response.createdAt, user?.timezone)}
                 </small>
               </p>
+              {user && response.userId !== user.id ? (
+                <button
+                  className="btn btn--secondary"
+                  type="button"
+                  onClick={() => onReport('response', response.id)}
+                  disabled={reportingKey === `response:${response.id}`}
+                >
+                  {reportingKey === `response:${response.id}` ? 'Reporting...' : 'Report Reply'}
+                </button>
+              ) : null}
             </TiltCard>
           ))}
         </ul>

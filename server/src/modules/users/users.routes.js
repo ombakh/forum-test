@@ -8,6 +8,13 @@ const { NOTIFICATION_TYPES, createNotification } = require('../notifications/not
 const router = express.Router();
 const OM_OVERRIDE_NAME = 'om bakhshi';
 const OM_OVERRIDE_EMAIL = 'ombakh28@gmail.com';
+const MAX_PROFILE_IMAGE_BYTES = 1024 * 1024;
+const ALLOWED_PROFILE_IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif'
+]);
 
 function normalizeHandle(value) {
   return String(value || '')
@@ -22,6 +29,50 @@ function canUseOmOverride(name, email) {
     String(email || '').trim().toLowerCase() === OM_OVERRIDE_EMAIL ||
     String(name || '').trim().toLowerCase() === OM_OVERRIDE_NAME
   );
+}
+
+function isValidTimeZone(timeZone) {
+  if (!timeZone) {
+    return false;
+  }
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone });
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function normalizeProfileImageDataUrl(value) {
+  if (value == null) {
+    return null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+
+  const match = raw.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i);
+  if (!match) {
+    throw new Error('Profile photo must be a valid image upload');
+  }
+
+  const mimeType = String(match[1] || '').toLowerCase();
+  if (!ALLOWED_PROFILE_IMAGE_MIME_TYPES.has(mimeType)) {
+    throw new Error('Profile photo must be PNG, JPG, WEBP, or GIF');
+  }
+
+  const base64Data = String(match[2] || '').replace(/\s+/g, '');
+  const byteLength = Buffer.byteLength(base64Data, 'base64');
+  if (!Number.isFinite(byteLength) || byteLength <= 0) {
+    throw new Error('Profile photo appears invalid');
+  }
+  if (byteLength > MAX_PROFILE_IMAGE_BYTES) {
+    throw new Error('Profile photo must be 1MB or smaller');
+  }
+
+  return `data:${mimeType};base64,${base64Data}`;
 }
 
 function parseSqliteTimestamp(value) {
@@ -93,7 +144,7 @@ router.get('/me', requireAuth, (req, res) => {
     const db = getDb();
     const user = db
       .prepare(
-        `SELECT id, name, handle, email, bio, is_admin AS isAdmin, banned_at AS bannedAt, ban_reason AS banReason, suspended_until AS suspendedUntil, suspension_reason AS suspensionReason, created_at AS createdAt
+        `SELECT id, name, handle, email, bio, profile_image_url AS profileImageUrl, timezone, is_admin AS isAdmin, is_moderator AS isModerator, banned_at AS bannedAt, ban_reason AS banReason, suspended_until AS suspendedUntil, suspension_reason AS suspensionReason, created_at AS createdAt
          FROM users
          WHERE id = ?`
       )
@@ -109,6 +160,7 @@ router.get('/me', requireAuth, (req, res) => {
       user: {
         ...user,
         isAdmin: Boolean(user.isAdmin),
+        isModerator: Boolean(user.isModerator),
         ...followStats
       }
     });
@@ -121,10 +173,23 @@ router.patch('/me', requireAuth, (req, res) => {
   const hasName = Object.prototype.hasOwnProperty.call(req.body, 'name');
   const hasHandle = Object.prototype.hasOwnProperty.call(req.body, 'handle');
   const hasBio = Object.prototype.hasOwnProperty.call(req.body, 'bio');
+  const hasTimezone = Object.prototype.hasOwnProperty.call(req.body, 'timezone');
+  const hasProfileImageUrl = Object.prototype.hasOwnProperty.call(req.body, 'profileImageUrl');
 
   const name = hasName ? String(req.body.name || '').trim() : null;
   const handle = hasHandle ? normalizeHandle(req.body.handle) : null;
   const bio = hasBio ? String(req.body.bio || '').trim() : null;
+  const timezoneInput = hasTimezone ? String(req.body.timezone || '').trim() : null;
+  const timezone = hasTimezone && !timezoneInput ? null : timezoneInput;
+  let profileImageUrl = null;
+
+  if (hasProfileImageUrl) {
+    try {
+      profileImageUrl = normalizeProfileImageDataUrl(req.body.profileImageUrl);
+    } catch (error) {
+      return res.status(400).json({ message: error.message || 'Invalid profile photo upload' });
+    }
+  }
 
   if (hasName && !name) {
     return res.status(400).json({ message: 'Name cannot be empty' });
@@ -140,12 +205,15 @@ router.patch('/me', requireAuth, (req, res) => {
   if (hasBio && bio.length > 280) {
     return res.status(400).json({ message: 'Bio must be 280 characters or fewer' });
   }
+  if (hasTimezone && timezone && !isValidTimeZone(timezone)) {
+    return res.status(400).json({ message: 'Invalid timezone' });
+  }
 
   try {
     const db = getDb();
     const current = db
       .prepare(
-        `SELECT id, name, handle, bio
+        `SELECT id, name, handle, bio, timezone, profile_image_url AS profileImageUrl
          FROM users
          WHERE id = ?`
       )
@@ -158,6 +226,8 @@ router.patch('/me', requireAuth, (req, res) => {
     const nextName = hasName ? name : current.name;
     const nextHandle = hasHandle ? handle : current.handle;
     const nextBio = hasBio ? (bio || null) : current.bio;
+    const nextTimezone = hasTimezone ? timezone : current.timezone;
+    const nextProfileImageUrl = hasProfileImageUrl ? profileImageUrl : current.profileImageUrl;
 
     if (!nextName || !nextHandle) {
       return res.status(400).json({ message: 'Name and handle are required' });
@@ -174,13 +244,15 @@ router.patch('/me', requireAuth, (req, res) => {
       `UPDATE users
        SET name = ?,
            handle = ?,
-           bio = ?
+           bio = ?,
+           timezone = ?,
+           profile_image_url = ?
        WHERE id = ?`
-    ).run(nextName, nextHandle, nextBio, req.authUser.id);
+    ).run(nextName, nextHandle, nextBio, nextTimezone, nextProfileImageUrl, req.authUser.id);
 
     const updated = db
       .prepare(
-        `SELECT id, name, handle, email, bio, is_admin AS isAdmin, banned_at AS bannedAt, ban_reason AS banReason, suspended_until AS suspendedUntil, suspension_reason AS suspensionReason, created_at AS createdAt
+        `SELECT id, name, handle, email, bio, profile_image_url AS profileImageUrl, timezone, is_admin AS isAdmin, is_moderator AS isModerator, banned_at AS bannedAt, ban_reason AS banReason, suspended_until AS suspendedUntil, suspension_reason AS suspensionReason, created_at AS createdAt
          FROM users
          WHERE id = ?`
       )
@@ -192,6 +264,7 @@ router.patch('/me', requireAuth, (req, res) => {
       user: {
         ...updated,
         isAdmin: Boolean(updated.isAdmin),
+        isModerator: Boolean(updated.isModerator),
         ...followStats
       }
     });
@@ -391,6 +464,7 @@ router.get('/:userId', (req, res) => {
           name,
           handle,
           bio,
+          profile_image_url AS profileImageUrl,
           created_at AS createdAt
          FROM users
          WHERE id = ?`
@@ -499,6 +573,7 @@ router.get('/', requireAuth, requireAdmin, (_req, res) => {
           email,
           bio,
           is_admin AS isAdmin,
+          is_moderator AS isModerator,
           banned_at AS bannedAt,
           ban_reason AS banReason,
           suspended_until AS suspendedUntil,
@@ -511,12 +586,77 @@ router.get('/', requireAuth, requireAdmin, (_req, res) => {
       .map((user) => ({
         ...user,
         isAdmin: Boolean(user.isAdmin),
+        isModerator: Boolean(user.isModerator),
         isSuspended: isSuspensionActive(user.suspendedUntil)
       }));
 
     return res.json({ users });
   } catch (_error) {
     return res.status(500).json({ message: 'Could not load users' });
+  }
+});
+
+router.post('/:userId/moderator', requireAuth, requireAdmin, (req, res) => {
+  const targetUserId = Number(req.params.userId);
+  const moderator = req.body.moderator !== false;
+
+  if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+    return res.status(400).json({ message: 'Invalid user id' });
+  }
+
+  try {
+    const db = getDb();
+    const target = db
+      .prepare(
+        `SELECT
+          id,
+          is_admin AS isAdmin,
+          is_moderator AS isModerator
+         FROM users
+         WHERE id = ?`
+      )
+      .get(targetUserId);
+
+    if (!target) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (target.isAdmin) {
+      return res.status(403).json({ message: 'Admin accounts already have full moderation access' });
+    }
+
+    db.prepare('UPDATE users SET is_moderator = ? WHERE id = ?').run(moderator ? 1 : 0, targetUserId);
+
+    const updated = db
+      .prepare(
+        `SELECT
+          id,
+          name,
+          handle,
+          email,
+          bio,
+          is_admin AS isAdmin,
+          is_moderator AS isModerator,
+          banned_at AS bannedAt,
+          ban_reason AS banReason,
+          suspended_until AS suspendedUntil,
+          suspension_reason AS suspensionReason,
+          created_at AS createdAt
+         FROM users
+         WHERE id = ?`
+      )
+      .get(targetUserId);
+
+    return res.json({
+      user: {
+        ...updated,
+        isAdmin: Boolean(updated.isAdmin),
+        isModerator: Boolean(updated.isModerator),
+        isSuspended: isSuspensionActive(updated.suspendedUntil)
+      }
+    });
+  } catch (_error) {
+    return res.status(500).json({ message: 'Could not update moderator status' });
   }
 });
 
@@ -537,7 +677,7 @@ router.post('/:userId/ban', requireAuth, requireAdmin, (req, res) => {
     const db = getDb();
     const target = db
       .prepare(
-        'SELECT id, name, handle, email, bio, is_admin, banned_at, ban_reason, suspended_until, suspension_reason, created_at FROM users WHERE id = ?'
+        'SELECT id, name, handle, email, bio, is_admin, is_moderator, banned_at, ban_reason, suspended_until, suspension_reason, created_at FROM users WHERE id = ?'
       )
       .get(targetUserId);
 
@@ -574,6 +714,7 @@ router.post('/:userId/ban', requireAuth, requireAdmin, (req, res) => {
           email,
           bio,
           is_admin AS isAdmin,
+          is_moderator AS isModerator,
           banned_at AS bannedAt,
           ban_reason AS banReason,
           suspended_until AS suspendedUntil,
@@ -587,7 +728,8 @@ router.post('/:userId/ban', requireAuth, requireAdmin, (req, res) => {
     return res.json({
       user: {
         ...updated,
-        isAdmin: Boolean(updated.isAdmin)
+        isAdmin: Boolean(updated.isAdmin),
+        isModerator: Boolean(updated.isModerator)
       }
     });
   } catch (_error) {
@@ -653,6 +795,7 @@ router.post('/:userId/suspend', requireAuth, requireAdmin, (req, res) => {
           email,
           bio,
           is_admin AS isAdmin,
+          is_moderator AS isModerator,
           banned_at AS bannedAt,
           ban_reason AS banReason,
           suspended_until AS suspendedUntil,
@@ -667,6 +810,7 @@ router.post('/:userId/suspend', requireAuth, requireAdmin, (req, res) => {
       user: {
         ...updated,
         isAdmin: Boolean(updated.isAdmin),
+        isModerator: Boolean(updated.isModerator),
         isSuspended: isSuspensionActive(updated.suspendedUntil)
       }
     });

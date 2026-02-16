@@ -43,11 +43,25 @@ function canUseOmOverride(name, email) {
   );
 }
 
+function isValidTimeZone(timeZone) {
+  if (!timeZone) {
+    return false;
+  }
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone });
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
 router.post('/register', (req, res) => {
   const name = (req.body.name || '').trim();
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
   const handle = normalizeHandle(req.body.handle);
+  const timezoneInput = String(req.body.timezone || '').trim();
+  const timezone = timezoneInput || null;
 
   if (!name || !email || !password || password.length < 8 || !handle) {
     return res
@@ -61,6 +75,9 @@ router.post('/register', (req, res) => {
     return res
       .status(400)
       .json({ message: 'Handle must be 3-20 characters using only letters, numbers, or underscores' });
+  }
+  if (timezone && !isValidTimeZone(timezone)) {
+    return res.status(400).json({ message: 'Invalid timezone' });
   }
 
   try {
@@ -78,20 +95,21 @@ router.post('/register', (req, res) => {
     const passwordHash = bcrypt.hashSync(password, 12);
     const insert = db
       .prepare(
-        `INSERT INTO users (name, handle, email, password_hash)
-         VALUES (?, ?, ?, ?)`
+        `INSERT INTO users (name, handle, email, password_hash, timezone)
+         VALUES (?, ?, ?, ?, ?)`
       )
-      .run(name, handle, email, passwordHash);
+      .run(name, handle, email, passwordHash, timezone);
 
     const user = db
       .prepare(
-        `SELECT id, name, handle, email, bio, is_admin AS isAdmin, banned_at AS bannedAt, ban_reason AS banReason, suspended_until AS suspendedUntil, suspension_reason AS suspensionReason, created_at AS createdAt
+        `SELECT id, name, handle, email, bio, profile_image_url AS profileImageUrl, timezone, is_admin AS isAdmin, is_moderator AS isModerator, banned_at AS bannedAt, ban_reason AS banReason, suspended_until AS suspendedUntil, suspension_reason AS suspensionReason, created_at AS createdAt
          FROM users
          WHERE id = ?`
       )
       .get(insert.lastInsertRowid);
 
     user.isAdmin = Boolean(user.isAdmin);
+    user.isModerator = Boolean(user.isModerator);
 
     const token = signUserToken(user);
     setAuthCookie(res, token);
@@ -139,7 +157,10 @@ router.post('/login', (req, res) => {
       handle: user.handle,
       email: user.email,
       bio: user.bio,
+      profileImageUrl: user.profile_image_url,
+      timezone: user.timezone,
       isAdmin: Boolean(user.is_admin),
+      isModerator: Boolean(user.is_moderator),
       bannedAt: user.banned_at,
       banReason: user.ban_reason,
       suspendedUntil: user.suspended_until,
@@ -171,7 +192,7 @@ router.get('/me', (req, res) => {
     const db = getDb();
     const user = db
       .prepare(
-        `SELECT id, name, handle, email, bio, is_admin AS isAdmin, banned_at AS bannedAt, ban_reason AS banReason, suspended_until AS suspendedUntil, suspension_reason AS suspensionReason, created_at AS createdAt
+        `SELECT id, name, handle, email, bio, profile_image_url AS profileImageUrl, timezone, is_admin AS isAdmin, is_moderator AS isModerator, banned_at AS bannedAt, ban_reason AS banReason, suspended_until AS suspendedUntil, suspension_reason AS suspensionReason, created_at AS createdAt
          FROM users
          WHERE id = ?`
       )
@@ -195,6 +216,7 @@ router.get('/me', (req, res) => {
     }
 
     user.isAdmin = Boolean(user.isAdmin);
+    user.isModerator = Boolean(user.isModerator);
     return res.json({ user });
   } catch (_error) {
     clearAuthCookie(res);

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import TiltCard from '../components/TiltCard.jsx';
 import { fetchThreads } from '../services/threadService.js';
 import { fetchFollowingThreads } from '../services/userService.js';
+import { formatDateTime } from '../utils/dateTime.js';
 
 function HomePage({ user }) {
   const [trendingThreads, setTrendingThreads] = useState([]);
@@ -99,19 +100,6 @@ function HomePage({ user }) {
     };
   }, [user, feedTab, followingSearch, followingSort]);
 
-  function sortLabel(sort) {
-    if (sort === 'top') {
-      return 'Top';
-    }
-    if (sort === 'active') {
-      return 'Most Active';
-    }
-    if (sort === 'discussed') {
-      return 'Most Discussed';
-    }
-    return 'Newest';
-  }
-
   const trendingAverageScore = useMemo(() => {
     if (trendingThreads.length === 0) {
       return 0;
@@ -137,7 +125,6 @@ function HomePage({ user }) {
   const currentCount = feedTab === 'trending' ? trendingThreads.length : followingThreads.length;
   const currentAverageScore =
     feedTab === 'trending' ? trendingAverageScore : followingAverageScore;
-  const currentSort = feedTab === 'trending' ? trendingSort : followingSort;
 
   return (
     <section className="home-page">
@@ -151,10 +138,6 @@ function HomePage({ user }) {
           <div className="hero-metric">
             <span>Avg Score</span>
             <strong>{currentAverageScore}</strong>
-          </div>
-          <div className="hero-metric">
-            <span>Sort</span>
-            <strong>{sortLabel(currentSort)}</strong>
           </div>
         </div>
 
@@ -180,17 +163,28 @@ function HomePage({ user }) {
         {feedTab === 'trending' ? (
           <>
             <p className="muted">Posts people are engaging with right now.</p>
-            <input
-              value={trendingSearch}
-              onChange={(event) => setTrendingSearch(event.target.value)}
-              placeholder="Search trending posts..."
-            />
-            <select value={trendingSort} onChange={(event) => setTrendingSort(event.target.value)}>
-              <option value="top">Top</option>
-              <option value="active">Most Active</option>
-              <option value="discussed">Most Discussed</option>
-              <option value="new">Newest</option>
-            </select>
+            <div className="home-feed-controls">
+              <input
+                className="home-feed-controls__search"
+                value={trendingSearch}
+                onChange={(event) => setTrendingSearch(event.target.value)}
+                placeholder="Search trending posts..."
+              />
+              <label className="home-feed-controls__sort-wrap">
+                <span className="home-feed-controls__sort-label">Sort</span>
+                <select
+                  className="home-feed-controls__sort"
+                  value={trendingSort}
+                  onChange={(event) => setTrendingSort(event.target.value)}
+                  aria-label="Sort trending posts"
+                >
+                  <option value="top">Top</option>
+                  <option value="active">Most Active</option>
+                  <option value="discussed">Most Discussed</option>
+                  <option value="new">Newest</option>
+                </select>
+              </label>
+            </div>
             {!user ? <p className="muted"><Link to="/login">Login</Link> to unlock your following feed.</p> : null}
             {trendingError ? <p className="error-text">{trendingError}</p> : null}
             {trendingLoading ? <p className="muted">Loading trending posts...</p> : null}
@@ -201,17 +195,28 @@ function HomePage({ user }) {
         ) : (
           <>
             <p className="muted">Threads from people you follow.</p>
-            <input
-              value={followingSearch}
-              onChange={(event) => setFollowingSearch(event.target.value)}
-              placeholder="Search in following feed..."
-            />
-            <select value={followingSort} onChange={(event) => setFollowingSort(event.target.value)}>
-              <option value="new">Newest</option>
-              <option value="top">Top</option>
-              <option value="active">Most Active</option>
-              <option value="discussed">Most Discussed</option>
-            </select>
+            <div className="home-feed-controls">
+              <input
+                className="home-feed-controls__search"
+                value={followingSearch}
+                onChange={(event) => setFollowingSearch(event.target.value)}
+                placeholder="Search in following feed..."
+              />
+              <label className="home-feed-controls__sort-wrap">
+                <span className="home-feed-controls__sort-label">Sort</span>
+                <select
+                  className="home-feed-controls__sort"
+                  value={followingSort}
+                  onChange={(event) => setFollowingSort(event.target.value)}
+                  aria-label="Sort following feed"
+                >
+                  <option value="new">Newest</option>
+                  <option value="top">Top</option>
+                  <option value="active">Most Active</option>
+                  <option value="discussed">Most Discussed</option>
+                </select>
+              </label>
+            </div>
             {followingError ? <p className="error-text">{followingError}</p> : null}
             {followingLoading ? <p className="muted">Loading following feed...</p> : null}
             {!followingLoading && followingThreads.length === 0 ? (
@@ -251,8 +256,18 @@ function HomePage({ user }) {
                 <p className="muted">
                   #{index + 1} trending • Score: {(thread.upvotes || 0) - (thread.downvotes || 0)} •{' '}
                   {thread.responseCount || 0} responses • last activity{' '}
-                  {new Date(thread.latestActivityAt || thread.createdAt).toLocaleString()}
+                  {formatDateTime(thread.latestActivityAt || thread.createdAt, user?.timezone)}
                 </p>
+                {user ? (
+                  <div className="thread-actions">
+                    <Link
+                      className="btn btn--secondary"
+                      to={`/messages?shareThreadId=${thread.id}&shareThreadTitle=${encodeURIComponent(thread.title)}`}
+                    >
+                      Share
+                    </Link>
+                  </div>
+                ) : null}
               </TiltCard>
             ))}
           </ul>
@@ -281,8 +296,19 @@ function HomePage({ user }) {
               </p>
               <p className="muted">
                 Score: {(thread.upvotes || 0) - (thread.downvotes || 0)} • {thread.responseCount || 0}{' '}
-                responses • last activity {new Date(thread.latestActivityAt || thread.createdAt).toLocaleString()}
+                responses • last activity{' '}
+                {formatDateTime(thread.latestActivityAt || thread.createdAt, user?.timezone)}
               </p>
+              {user ? (
+                <div className="thread-actions">
+                  <Link
+                    className="btn btn--secondary"
+                    to={`/messages?shareThreadId=${thread.id}&shareThreadTitle=${encodeURIComponent(thread.title)}`}
+                  >
+                    Share
+                  </Link>
+                </div>
+              ) : null}
             </TiltCard>
           ))}
         </ul>

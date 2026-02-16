@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { fetchChatUsers, fetchConversation, sendMessage } from '../services/chatService.js';
+import { formatDateTime } from '../utils/dateTime.js';
 import { renderMentions } from '../utils/renderMentions.jsx';
 
 const CHAT_UNREAD_UPDATE_EVENT = 'pinboard:chat-unread-update';
-const NOTIFICATIONS_UNREAD_UPDATE_EVENT = 'pinboard:notifications-unread-update';
 
 function unreadTotal(users) {
   return users.reduce((sum, chatUser) => sum + Number(chatUser.unreadCount || 0), 0);
@@ -13,6 +13,8 @@ function unreadTotal(users) {
 function ChatPage({ user }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedUserId = Number(searchParams.get('userId')) || null;
+  const sharedThreadId = Number(searchParams.get('shareThreadId')) || null;
+  const sharedThreadTitle = String(searchParams.get('shareThreadTitle') || '').trim();
 
   const [chatUsers, setChatUsers] = useState([]);
   const [chatUsersLoading, setChatUsersLoading] = useState(true);
@@ -40,16 +42,6 @@ function ChatPage({ user }) {
     );
   }, [chatUsers, user, chatUsersLoading]);
 
-  function dispatchNotificationUnreadUpdate(total) {
-    window.dispatchEvent(
-      new CustomEvent(NOTIFICATIONS_UNREAD_UPDATE_EVENT, {
-        detail: {
-          total: Number.isFinite(Number(total)) ? Math.max(0, Number(total)) : 0
-        }
-      })
-    );
-  }
-
   useEffect(() => {
     let active = true;
 
@@ -68,7 +60,15 @@ function ChatPage({ user }) {
         if (active) {
           setChatUsers(users);
           if (!selectedUserId && users.length > 0) {
-            setSearchParams({ userId: String(users[0].id) }, { replace: true });
+            const nextParams = new URLSearchParams();
+            nextParams.set('userId', String(users[0].id));
+            if (sharedThreadId) {
+              nextParams.set('shareThreadId', String(sharedThreadId));
+            }
+            if (sharedThreadTitle) {
+              nextParams.set('shareThreadTitle', sharedThreadTitle);
+            }
+            setSearchParams(nextParams, { replace: true });
           }
         }
       } catch (error) {
@@ -87,7 +87,7 @@ function ChatPage({ user }) {
     return () => {
       active = false;
     };
-  }, [user, selectedUserId, setSearchParams, userSearch]);
+  }, [user, selectedUserId, setSearchParams, userSearch, sharedThreadId, sharedThreadTitle]);
 
   useEffect(() => {
     let active = true;
@@ -98,9 +98,6 @@ function ChatPage({ user }) {
         setMessages([]);
         setMessagesError('');
         setMessagesLoading(false);
-        if (!user) {
-          dispatchNotificationUnreadUpdate(0);
-        }
         return;
       }
 
@@ -116,7 +113,6 @@ function ChatPage({ user }) {
               chatUser.id === selectedUserId ? { ...chatUser, unreadCount: 0 } : chatUser
             )
           );
-          dispatchNotificationUnreadUpdate(data.unreadNotificationCount);
         }
       } catch (error) {
         if (active) {
@@ -152,7 +148,6 @@ function ChatPage({ user }) {
         setChatUsers(users);
         setConversationUser(data.user || null);
         setMessages(data.messages || []);
-        dispatchNotificationUnreadUpdate(data.unreadNotificationCount);
       } catch (_error) {
         // Quiet background polling failure.
       }
@@ -178,7 +173,7 @@ function ChatPage({ user }) {
   async function onSendMessage(event) {
     event.preventDefault();
 
-    if (!selectedUserId || sending) {
+    if (!selectedUserId || sending || (!draft.trim() && !sharedThreadId)) {
       return;
     }
 
@@ -186,9 +181,18 @@ function ChatPage({ user }) {
     setMessagesError('');
 
     try {
-      const created = await sendMessage(selectedUserId, draft);
+      const created = await sendMessage(selectedUserId, {
+        body: draft,
+        ...(sharedThreadId ? { sharedThreadId } : {})
+      });
       setMessages((current) => [...current, created]);
       setDraft('');
+      if (sharedThreadId) {
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('shareThreadId');
+        nextParams.delete('shareThreadTitle');
+        setSearchParams(nextParams, { replace: true });
+      }
       const users = await fetchChatUsers(userSearch);
       setChatUsers(users);
     } catch (error) {
@@ -236,7 +240,11 @@ function ChatPage({ user }) {
                 <button
                   type="button"
                   className={`chat-user-btn ${isSelected ? 'is-selected' : ''}`}
-                  onClick={() => setSearchParams({ userId: String(chatUser.id) })}
+                  onClick={() => {
+                    const nextParams = new URLSearchParams(searchParams);
+                    nextParams.set('userId', String(chatUser.id));
+                    setSearchParams(nextParams);
+                  }}
                 >
                   <span className="chat-user-name">{chatUser.name}</span>
                   {chatUser.unreadCount > 0 ? (
@@ -259,6 +267,36 @@ function ChatPage({ user }) {
           <h2>{conversationUser ? conversationUser.name : selectedChatUser?.name || 'Select a chat'}</h2>
         </header>
 
+        {sharedThreadId ? (
+          <div className="chat-share-banner">
+            <p>
+              Sharing post:{' '}
+              <Link to={`/threads/${sharedThreadId}`}>
+                {sharedThreadTitle || `Thread #${sharedThreadId}`}
+              </Link>
+            </p>
+            <p className="muted">
+              {selectedUserId
+                ? 'This post will be attached to your next message in this chat.'
+                : 'Pick a user to send this shared post.'}
+            </p>
+            <p>
+              <button
+                className="btn btn--secondary"
+                type="button"
+                onClick={() => {
+                  const nextParams = new URLSearchParams(searchParams);
+                  nextParams.delete('shareThreadId');
+                  nextParams.delete('shareThreadTitle');
+                  setSearchParams(nextParams, { replace: true });
+                }}
+              >
+                Cancel Share
+              </button>
+            </p>
+          </div>
+        ) : null}
+
         {messagesError ? <p className="error-text">{messagesError}</p> : null}
         {messagesLoading ? <p className="muted">Loading conversation...</p> : null}
 
@@ -273,9 +311,20 @@ function ChatPage({ user }) {
             const mine = message.senderUserId === user.id;
             return (
               <li key={message.id} className={`chat-message ${mine ? 'is-mine' : ''}`}>
-                <p>{renderMentions(message.body)}</p>
+                {message.body ? <p>{renderMentions(message.body)}</p> : null}
+                {message.sharedThreadId ? (
+                  <p className="chat-shared-post">
+                    <Link className="chat-shared-post__link" to={`/threads/${message.sharedThreadId}`}>
+                      <span className="chat-shared-post__label">Shared post</span>
+                      <strong>{message.sharedThreadTitle || `Thread #${message.sharedThreadId}`}</strong>
+                      {message.sharedThreadBoardSlug ? (
+                        <span className="muted">/{message.sharedThreadBoardSlug}</span>
+                      ) : null}
+                    </Link>
+                  </p>
+                ) : null}
                 <p className="muted chat-message-meta">
-                  {new Date(message.createdAt).toLocaleString()}
+                  {formatDateTime(message.createdAt, user?.timezone)}
                   {mine && message.readAt ? ' • seen' : ''}
                 </p>
               </li>
@@ -294,13 +343,17 @@ function ChatPage({ user }) {
                   event.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder="Write a message..."
+              placeholder={sharedThreadId ? 'Add an optional note...' : 'Write a message...'}
               rows={3}
               maxLength={2000}
-              required
+              required={!sharedThreadId}
             />
-            <button className="btn" type="submit" disabled={sending || !draft.trim()}>
-              {sending ? 'Sending...' : 'Send'}
+            <button
+              className="btn"
+              type="submit"
+              disabled={sending || (!draft.trim() && !sharedThreadId)}
+            >
+              {sending ? 'Sending...' : sharedThreadId ? 'Share Post' : 'Send'}
             </button>
           </form>
         ) : null}
