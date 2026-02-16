@@ -39,8 +39,8 @@ router.get('/me/threads', requireAuth, (req, res) => {
           t.author_name AS authorName,
           t.created_at AS createdAt,
           t.author_user_id AS authorUserId,
-          COALESCE(SUM(CASE WHEN v.vote = 1 THEN 1 ELSE 0 END), 0) AS upvotes,
-          COALESCE(SUM(CASE WHEN v.vote = -1 THEN 1 ELSE 0 END), 0) AS downvotes,
+          COALESCE(SUM(CASE WHEN v.vote = 1 AND v.user_id != t.author_user_id THEN 1 ELSE 0 END), 0) AS upvotes,
+          COALESCE(SUM(CASE WHEN v.vote = -1 AND v.user_id != t.author_user_id THEN 1 ELSE 0 END), 0) AS downvotes,
           MAX(CASE WHEN v.user_id = ? THEN v.vote ELSE 0 END) AS userVote
          FROM threads t
          LEFT JOIN thread_votes v ON v.thread_id = t.id
@@ -139,11 +139,13 @@ router.get('/:userId', (req, res) => {
            FROM thread_votes tv
            JOIN threads t ON t.id = tv.thread_id
            WHERE t.author_user_id = ?
+             AND tv.user_id != t.author_user_id
            UNION ALL
            SELECT rv.vote
            FROM response_votes rv
            JOIN thread_responses r ON r.id = rv.response_id
            WHERE r.user_id = ?
+             AND rv.user_id != r.user_id
          ) votes`
       )
       .get(userId, userId);

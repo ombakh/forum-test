@@ -50,8 +50,8 @@ function buildThreadSelect() {
         ),
         t.created_at
       ) AS latestActivityAt,
-      COALESCE(SUM(CASE WHEN v.vote = 1 THEN 1 ELSE 0 END), 0) AS upvotes,
-      COALESCE(SUM(CASE WHEN v.vote = -1 THEN 1 ELSE 0 END), 0) AS downvotes,
+      COALESCE(SUM(CASE WHEN v.vote = 1 AND v.user_id != t.author_user_id THEN 1 ELSE 0 END), 0) AS upvotes,
+      COALESCE(SUM(CASE WHEN v.vote = -1 AND v.user_id != t.author_user_id THEN 1 ELSE 0 END), 0) AS downvotes,
       MAX(CASE WHEN v.user_id = ? THEN v.vote ELSE 0 END) AS userVote
     FROM threads t
     LEFT JOIN boards b ON b.id = t.board_id
@@ -68,8 +68,8 @@ function buildResponseSelect() {
       r.author_name AS authorName,
       r.body,
       r.created_at AS createdAt,
-      COALESCE(SUM(CASE WHEN rv.vote = 1 THEN 1 ELSE 0 END), 0) AS upvotes,
-      COALESCE(SUM(CASE WHEN rv.vote = -1 THEN 1 ELSE 0 END), 0) AS downvotes,
+      COALESCE(SUM(CASE WHEN rv.vote = 1 AND rv.user_id != r.user_id THEN 1 ELSE 0 END), 0) AS upvotes,
+      COALESCE(SUM(CASE WHEN rv.vote = -1 AND rv.user_id != r.user_id THEN 1 ELSE 0 END), 0) AS downvotes,
       MAX(CASE WHEN rv.user_id = ? THEN rv.vote ELSE 0 END) AS userVote
     FROM thread_responses r
     LEFT JOIN response_votes rv ON rv.response_id = r.id
@@ -222,10 +222,15 @@ router.post('/:threadId/vote', requireAuth, (req, res) => {
 
   try {
     const db = getDb();
-    const threadExists = db.prepare('SELECT id FROM threads WHERE id = ?').get(threadId);
+    const threadExists = db
+      .prepare('SELECT id, author_user_id AS authorUserId FROM threads WHERE id = ?')
+      .get(threadId);
 
     if (!threadExists) {
       return res.status(404).json({ message: 'Thread not found' });
+    }
+    if (threadExists.authorUserId && Number(threadExists.authorUserId) === userId) {
+      return res.status(400).json({ message: 'You cannot vote on your own thread' });
     }
 
     db.prepare(
@@ -389,11 +394,14 @@ router.post('/:threadId/responses/:responseId/vote', requireAuth, (req, res) => 
   try {
     const db = getDb();
     const responseExists = db
-      .prepare('SELECT id FROM thread_responses WHERE id = ? AND thread_id = ?')
+      .prepare('SELECT id, user_id AS authorUserId FROM thread_responses WHERE id = ? AND thread_id = ?')
       .get(responseId, threadId);
 
     if (!responseExists) {
       return res.status(404).json({ message: 'Response not found' });
+    }
+    if (Number(responseExists.authorUserId) === userId) {
+      return res.status(400).json({ message: 'You cannot vote on your own response' });
     }
 
     db.prepare(

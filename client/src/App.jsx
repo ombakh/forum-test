@@ -6,6 +6,7 @@ import AdminPage from './pages/AdminPage.jsx';
 import BoardPage from './pages/BoardPage.jsx';
 import BoardsPage from './pages/BoardsPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
+import ChatPage from './pages/ChatPage.jsx';
 import MyPostsSidebar from './components/MyPostsSidebar.jsx';
 import PostPage from './pages/PostPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
@@ -91,6 +92,7 @@ function App() {
           <Link to="/">Home</Link>
           <Link to="/boards">Boards</Link>
           <Link to="/post">Post</Link>
+          {user ? <Link to="/messages">Messages</Link> : null}
           {authLoading ? null : user ? (
             <div className="profile-menu" ref={menuRef}>
               <button
@@ -140,8 +142,9 @@ function App() {
               />
               <Route path="/admin" element={<AdminPage user={user} />} />
               <Route path="/login" element={<LoginPage onAuthSuccess={setUser} />} />
-              <Route path="/users/:userId" element={<ProfilePage />} />
+              <Route path="/users/:userId" element={<ProfilePage user={user} />} />
               <Route path="/threads/:threadId" element={<ThreadPage user={user} />} />
+              <Route path="/messages" element={<ChatPage user={user} />} />
             </Routes>
           </PageMotion>
         </main>
