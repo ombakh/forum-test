@@ -436,54 +436,53 @@ function App() {
           </nav>
         </header>
 
-        {user && !user.isEmailVerified ? (
-          <div className="verification-banner" role="region" aria-label="Email verification">
-            <div className="verification-banner__content">
-              <p className="verification-banner__title">Verify your email address</p>
-              <p className="verification-banner__text">
-                Verified accounts show a check next to your name.
-              </p>
-              {verificationMessage ? (
-                <p className="verification-banner__feedback">{verificationMessage}</p>
-              ) : null}
-              {verificationError ? (
-                <p className="verification-banner__feedback verification-banner__feedback--error">
-                  {verificationError}
-                </p>
-              ) : null}
-              {devVerificationToken ? (
-                <p className="verification-banner__dev-token">
-                  Dev token: <code>{devVerificationToken}</code>
-                </p>
-              ) : null}
-            </div>
-            <div className="verification-banner__actions">
-              <button
-                className="btn btn--secondary"
-                type="button"
-                onClick={onRequestVerification}
-                disabled={verificationBusy}
-              >
-                {verificationBusy ? 'Sending...' : 'Send verification email'}
-              </button>
-              <form className="verification-banner__form" onSubmit={onSubmitVerification}>
-                <input
-                  type="text"
-                  value={verificationToken}
-                  onChange={(event) => setVerificationToken(event.target.value)}
-                  placeholder="Paste verification token"
-                  aria-label="Verification token"
-                />
-                <button className="btn" type="submit" disabled={verificationBusy || !verificationToken.trim()}>
-                  {verificationBusy ? 'Verifying...' : 'Verify'}
-                </button>
-              </form>
-            </div>
-          </div>
-        ) : null}
-
         <div className="content-grid">
           <main className="main-panel">
+            {user && !user.isEmailVerified ? (
+              <div className="verification-banner" role="region" aria-label="Email verification">
+                <div className="verification-banner__content">
+                  <p className="verification-banner__title">Verify your email address</p>
+                  <p className="verification-banner__text">
+                    Verified accounts show a check next to your name.
+                  </p>
+                  {verificationMessage ? (
+                    <p className="verification-banner__feedback">{verificationMessage}</p>
+                  ) : null}
+                  {verificationError ? (
+                    <p className="verification-banner__feedback verification-banner__feedback--error">
+                      {verificationError}
+                    </p>
+                  ) : null}
+                  {devVerificationToken ? (
+                    <p className="verification-banner__dev-token">
+                      Dev token: <code>{devVerificationToken}</code>
+                    </p>
+                  ) : null}
+                </div>
+                <div className="verification-banner__actions">
+                  <button
+                    className="btn btn--secondary"
+                    type="button"
+                    onClick={onRequestVerification}
+                    disabled={verificationBusy}
+                  >
+                    {verificationBusy ? 'Sending...' : 'Send verification email'}
+                  </button>
+                  <form className="verification-banner__form" onSubmit={onSubmitVerification}>
+                    <input
+                      type="text"
+                      value={verificationToken}
+                      onChange={(event) => setVerificationToken(event.target.value)}
+                      placeholder="Paste verification token"
+                      aria-label="Verification token"
+                    />
+                    <button className="btn" type="submit" disabled={verificationBusy || !verificationToken.trim()}>
+                      {verificationBusy ? 'Verifying...' : 'Verify'}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ) : null}
             <PageMotion routeKey={location.pathname}>
               <Routes location={location}>
                 <Route path="/" element={<HomePage user={user} />} />

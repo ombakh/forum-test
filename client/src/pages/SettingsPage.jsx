@@ -8,6 +8,10 @@ import { getTimeZoneOptions } from '../utils/timezones.js';
 const MAX_CROPPED_IMAGE_BYTES = 1024 * 1024;
 const MAX_SOURCE_IMAGE_BYTES = 8 * 1024 * 1024;
 const OUTPUT_CROP_SIZE = 512;
+const PROFILE_CROP_VIEWPORT_SIZE = 224;
+const PROFILE_CROP_MIN_ZOOM = 1;
+const PROFILE_CROP_MAX_ZOOM = 3;
+const PROFILE_CROP_ZOOM_STEP = 0.08;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -31,13 +35,17 @@ function loadImageFromDataUrl(dataUrl) {
   });
 }
 
-function getCropSourceRect(imageWidth, imageHeight, zoom, offsetX, offsetY) {
+function getCropShiftBounds(imageWidth, imageHeight, zoom) {
   const sourceSize = Math.min(imageWidth, imageHeight);
-  const safeZoom = clamp(Number(zoom) || 1, 1, 3);
+  const safeZoom = clamp(Number(zoom) || PROFILE_CROP_MIN_ZOOM, PROFILE_CROP_MIN_ZOOM, PROFILE_CROP_MAX_ZOOM);
   const cropSize = sourceSize / safeZoom;
-
   const maxShiftX = Math.max(0, (imageWidth - cropSize) / 2);
   const maxShiftY = Math.max(0, (imageHeight - cropSize) / 2);
+  return { cropSize, maxShiftX, maxShiftY };
+}
+
+function getCropSourceRect(imageWidth, imageHeight, zoom, offsetX, offsetY) {
+  const { cropSize, maxShiftX, maxShiftY } = getCropShiftBounds(imageWidth, imageHeight, zoom);
 
   const normalizedOffsetX = clamp(Number(offsetX) || 0, -100, 100) / 100;
   const normalizedOffsetY = clamp(Number(offsetY) || 0, -100, 100) / 100;
@@ -49,6 +57,35 @@ function getCropSourceRect(imageWidth, imageHeight, zoom, offsetX, offsetY) {
   const sy = clamp(centerY - cropSize / 2, 0, Math.max(0, imageHeight - cropSize));
 
   return { sx, sy, cropSize };
+}
+
+function getCropPreviewTransformStyle(image, crop, viewportSize) {
+  const imageWidth = Number(image?.naturalWidth || image?.width || 0);
+  const imageHeight = Number(image?.naturalHeight || image?.height || 0);
+  const safeViewportSize = Math.max(1, Number(viewportSize) || PROFILE_CROP_VIEWPORT_SIZE);
+
+  if (!imageWidth || !imageHeight) {
+    return null;
+  }
+
+  const { cropSize, maxShiftX, maxShiftY } = getCropShiftBounds(imageWidth, imageHeight, crop.zoom);
+  if (!cropSize) {
+    return null;
+  }
+
+  const normalizedOffsetX = clamp(Number(crop.offsetX) || 0, -100, 100) / 100;
+  const normalizedOffsetY = clamp(Number(crop.offsetY) || 0, -100, 100) / 100;
+  const centerX = imageWidth / 2 + normalizedOffsetX * maxShiftX;
+  const centerY = imageHeight / 2 + normalizedOffsetY * maxShiftY;
+  const scale = safeViewportSize / cropSize;
+  const translateX = safeViewportSize / 2 - centerX * scale;
+  const translateY = safeViewportSize / 2 - centerY * scale;
+
+  return {
+    width: `${Math.max(1, imageWidth * scale)}px`,
+    height: `${Math.max(1, imageHeight * scale)}px`,
+    transform: `translate3d(${translateX}px, ${translateY}px, 0)`
+  };
 }
 
 function renderCroppedDataUrl(image, crop, outputSize, mimeType = 'image/webp', quality = 0.9) {
@@ -128,11 +165,15 @@ function SettingsPage({ user, onUserUpdated }) {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [profileImageUrl, setProfileImageUrl] = useState('');
   const [cropDraft, setCropDraft] = useState(null);
+  const [cropSourceUrl, setCropSourceUrl] = useState('');
   const [cropPreviewUrl, setCropPreviewUrl] = useState('');
+  const [cropViewportSize, setCropViewportSize] = useState(PROFILE_CROP_VIEWPORT_SIZE);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const timeZoneOptions = useMemo(() => getTimeZoneOptions(form.timezone), [form.timezone]);
   const cropImageRef = useRef(null);
+  const cropViewportRef = useRef(null);
+  const cropDragRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -185,21 +226,170 @@ function SettingsPage({ user, onUserUpdated }) {
     }
 
     try {
-      const previewUrl = renderCroppedDataUrl(cropImageRef.current, cropDraft, 224, 'image/webp', 0.82);
+      const previewUrl = renderCroppedDataUrl(
+        cropImageRef.current,
+        cropDraft,
+        PROFILE_CROP_VIEWPORT_SIZE,
+        'image/webp',
+        0.82
+      );
       setCropPreviewUrl(previewUrl);
     } catch (_error) {
       setCropPreviewUrl('');
     }
   }, [cropDraft]);
 
+  useEffect(() => {
+    const viewportElement = cropViewportRef.current;
+    if (!cropDraft || !viewportElement) {
+      setCropViewportSize(PROFILE_CROP_VIEWPORT_SIZE);
+      return;
+    }
+
+    function syncViewportSize() {
+      const nextSize = Math.max(1, Math.round(viewportElement.clientWidth || PROFILE_CROP_VIEWPORT_SIZE));
+      setCropViewportSize((current) => (current === nextSize ? current : nextSize));
+    }
+
+    syncViewportSize();
+    if (typeof ResizeObserver !== 'function') {
+      return;
+    }
+
+    const observer = new ResizeObserver(syncViewportSize);
+    observer.observe(viewportElement);
+    return () => observer.disconnect();
+  }, [cropDraft]);
+
   function clearCropDraft() {
     cropImageRef.current = null;
+    cropDragRef.current = null;
     setCropDraft(null);
+    setCropSourceUrl('');
     setCropPreviewUrl('');
+    setCropViewportSize(PROFILE_CROP_VIEWPORT_SIZE);
   }
 
-  function onCropControlChange(field, value) {
-    setCropDraft((current) => (current ? { ...current, [field]: value } : current));
+  function nudgeCropZoom(step) {
+    setCropDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        zoom: clamp(
+          (Number(current.zoom) || PROFILE_CROP_MIN_ZOOM) + step,
+          PROFILE_CROP_MIN_ZOOM,
+          PROFILE_CROP_MAX_ZOOM
+        )
+      };
+    });
+  }
+
+  function resetCropPosition() {
+    setCropDraft((current) =>
+      current
+        ? {
+            ...current,
+            zoom: PROFILE_CROP_MIN_ZOOM,
+            offsetX: 0,
+            offsetY: 0
+          }
+        : current
+    );
+  }
+
+  function applyCropDrag(deltaX, deltaY) {
+    setCropDraft((current) => {
+      if (!current || !cropImageRef.current) {
+        return current;
+      }
+
+      const imageWidth = Number(cropImageRef.current.naturalWidth || cropImageRef.current.width || 0);
+      const imageHeight = Number(cropImageRef.current.naturalHeight || cropImageRef.current.height || 0);
+      if (!imageWidth || !imageHeight) {
+        return current;
+      }
+
+      const viewportSize = Math.max(1, Number(cropViewportSize) || PROFILE_CROP_VIEWPORT_SIZE);
+      const { cropSize, maxShiftX, maxShiftY } = getCropShiftBounds(imageWidth, imageHeight, current.zoom);
+      const scale = cropSize > 0 ? viewportSize / cropSize : 0;
+      if (!scale) {
+        return current;
+      }
+
+      let nextOffsetX = current.offsetX;
+      let nextOffsetY = current.offsetY;
+
+      if (maxShiftX > 0) {
+        const sourceDeltaX = -deltaX / scale;
+        nextOffsetX = clamp(current.offsetX + (sourceDeltaX / maxShiftX) * 100, -100, 100);
+      }
+
+      if (maxShiftY > 0) {
+        const sourceDeltaY = -deltaY / scale;
+        nextOffsetY = clamp(current.offsetY + (sourceDeltaY / maxShiftY) * 100, -100, 100);
+      }
+
+      return {
+        ...current,
+        offsetX: nextOffsetX,
+        offsetY: nextOffsetY
+      };
+    });
+  }
+
+  function onCropPointerDown(event) {
+    if (!cropDraft || photoBusy || saving) {
+      return;
+    }
+    if (event.pointerType !== 'touch' && event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    cropDragRef.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function onCropPointerMove(event) {
+    const drag = cropDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    const deltaX = event.clientX - drag.clientX;
+    const deltaY = event.clientY - drag.clientY;
+    drag.clientX = event.clientX;
+    drag.clientY = event.clientY;
+    applyCropDrag(deltaX, deltaY);
+  }
+
+  function onCropPointerEnd(event) {
+    const drag = cropDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    cropDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function onCropViewportWheel(event) {
+    if (!cropDraft || photoBusy || saving) {
+      return;
+    }
+
+    event.preventDefault();
+    nudgeCropZoom(event.deltaY < 0 ? PROFILE_CROP_ZOOM_STEP : -PROFILE_CROP_ZOOM_STEP);
   }
 
   async function onPhotoSelected(event) {
@@ -229,18 +419,27 @@ function SettingsPage({ user, onUserUpdated }) {
       const dataUrl = await readFileAsDataUrl(file);
       const image = await loadImageFromDataUrl(dataUrl);
       cropImageRef.current = image;
+      setCropSourceUrl(dataUrl);
       setCropDraft({
-        zoom: 1,
+        zoom: PROFILE_CROP_MIN_ZOOM,
         offsetX: 0,
         offsetY: 0
       });
-      setSuccess('Adjust crop and save your photo.');
+      setSuccess('Drag your photo to position it, then save.');
     } catch (updateError) {
       setError(updateError.message || 'Could not load selected photo');
     } finally {
       setPhotoBusy(false);
     }
   }
+
+  const cropTransformStyle = useMemo(() => {
+    if (!cropDraft || !cropImageRef.current) {
+      return null;
+    }
+
+    return getCropPreviewTransformStyle(cropImageRef.current, cropDraft, cropViewportSize);
+  }, [cropDraft, cropViewportSize]);
 
   async function onSaveCroppedPhoto() {
     if (!cropDraft || !cropImageRef.current || photoBusy) {
@@ -393,51 +592,73 @@ function SettingsPage({ user, onUserUpdated }) {
           {cropDraft ? (
             <div className="profile-photo-cropper">
               <div className="profile-photo-cropper__preview-wrap">
-                <div className="profile-photo-cropper__preview">
-                  {cropPreviewUrl ? (
-                    <img src={cropPreviewUrl} alt="Profile photo crop preview" />
+                <div
+                  ref={cropViewportRef}
+                  className={`profile-photo-cropper__preview-shell${photoBusy || saving ? ' is-disabled' : ''}`}
+                  role="application"
+                  aria-label="Crop area. Drag the image to position your photo."
+                  onPointerDown={onCropPointerDown}
+                  onPointerMove={onCropPointerMove}
+                  onPointerUp={onCropPointerEnd}
+                  onPointerCancel={onCropPointerEnd}
+                  onLostPointerCapture={onCropPointerEnd}
+                  onWheel={onCropViewportWheel}
+                >
+                  {cropSourceUrl && cropTransformStyle ? (
+                    <img
+                      className="profile-photo-cropper__source-image"
+                      src={cropSourceUrl}
+                      style={cropTransformStyle}
+                      alt="Profile photo source"
+                      draggable={false}
+                    />
                   ) : (
                     <span className="muted">Preparing preview...</span>
                   )}
+                  <span className="profile-photo-cropper__mask" aria-hidden="true" />
                 </div>
               </div>
               <div className="profile-photo-cropper__controls">
-                <label>
-                  Zoom ({Math.round((cropDraft.zoom || 1) * 100)}%)
-                  <input
-                    type="range"
-                    min="1"
-                    max="3"
-                    step="0.01"
-                    value={cropDraft.zoom}
-                    onChange={(event) => onCropControlChange('zoom', Number(event.target.value))}
+                <p className="muted profile-photo-cropper__hint">
+                  Drag to reposition. Use mouse wheel or buttons to zoom.
+                </p>
+                <div className="profile-photo-cropper__zoom">
+                  <button
+                    className="btn btn--secondary"
+                    type="button"
+                    onClick={() => nudgeCropZoom(-PROFILE_CROP_ZOOM_STEP)}
                     disabled={photoBusy || saving}
-                  />
-                </label>
-                <label>
-                  Horizontal ({Math.round(cropDraft.offsetX || 0)})
-                  <input
-                    type="range"
-                    min="-100"
-                    max="100"
-                    step="1"
-                    value={cropDraft.offsetX}
-                    onChange={(event) => onCropControlChange('offsetX', Number(event.target.value))}
+                    aria-label="Zoom out"
+                  >
+                    -
+                  </button>
+                  <span className="profile-photo-cropper__zoom-value">
+                    Zoom {Math.round((cropDraft.zoom || PROFILE_CROP_MIN_ZOOM) * 100)}%
+                  </span>
+                  <button
+                    className="btn btn--secondary"
+                    type="button"
+                    onClick={() => nudgeCropZoom(PROFILE_CROP_ZOOM_STEP)}
                     disabled={photoBusy || saving}
-                  />
-                </label>
-                <label>
-                  Vertical ({Math.round(cropDraft.offsetY || 0)})
-                  <input
-                    type="range"
-                    min="-100"
-                    max="100"
-                    step="1"
-                    value={cropDraft.offsetY}
-                    onChange={(event) => onCropControlChange('offsetY', Number(event.target.value))}
+                    aria-label="Zoom in"
+                  >
+                    +
+                  </button>
+                  <button
+                    className="btn btn--secondary"
+                    type="button"
+                    onClick={resetCropPosition}
                     disabled={photoBusy || saving}
-                  />
-                </label>
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div className="profile-photo-cropper__result">
+                  <span className="muted">Saved preview</span>
+                  <span className="profile-photo-cropper__result-thumb" aria-hidden="true">
+                    {cropPreviewUrl ? <img src={cropPreviewUrl} alt="" /> : null}
+                  </span>
+                </div>
               </div>
             </div>
           ) : null}
